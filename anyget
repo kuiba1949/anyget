@@ -1,0 +1,754 @@
+#! /bin/bash
+## updated by Careone <emacslocale@126.com>, 2014-07-12
+## package name: system-grasp
+## command: anyget
+#set -x
+
+VERSION='0.4.1'
+
+## defines
+APP='anyget'
+
+prefix="/usr/local"
+APP_GDIR="$prefix/share"	#global share directory
+DOTDIR=".$APP"
+
+APPCFG="$HOME/$DOTDIR/${APP}.cfg"	#configure file name
+LIST="$HOME/$DOTDIR/${APP}.list"	#default URL list resource file
+DEFAULT_TODIR="$HOME/Downloads"	#default path to save downloaded files
+
+MAX_DOWNS="3"	#todo function and not work yet
+
+#creat a file with speical suffix to tell user file is downloading with wget
+DOWNLOADING="WGETING"
+
+# keep log or not
+KEEPLOG="0"	#switch, 1=keep log; 0=no log. default=0
+LOGDIR="$HOME/$DOTDIR"
+LOG="$LOGDIR/${APP}.log"
+LOG_LIMIT="65536" #max size of log file: 65536 byte = 64K
+
+## ---- debug switches ----
+DEBUG=0	#1: show debug output; 0: quiet
+
+SHOW_CFG=0
+## show global/persion profiles: after done. 1=enable; 0=disable
+## ==== debug switches ====
+
+## probe current LANG is zh_CN or others, to auto select information
+## language
+CLANG=`echo $LANG | cut -d'.' -f1`
+
+## todo function
+## download and save files to a directory named by date
+TIMESTAMP="$(date +"%Y-%m-%d")"
+#TIMESTAMP="$(date +"%Y-%m-%d.%H%M%S")"	#optional date format
+
+# Usage: usage
+# Print the usage.
+usage () {
+    cat <<EOF
+Usage: $APP [OPTION]
+auto download files by URLs in resource file (~/$DOTDIR/$APP.list). now support
+http, https and ftp only
+
+OPTIONS
+      -l, --list         list lines to be downloaded in file ~/$DOTDIR/${APP}.list
+      -d, --download     read ~/$DOTDIR/${APP}.list and auto download files by orders
+      -md, --multi-download     download multi files at the same time (in background)
+      -e, --edit         edit URLs in download resource file ~/$DOTDIR/${APP}.list
+      -i, --init         generate default configure file (~/$DOTDIR/${APP}.list and ~/$DOTDIR/${APP}.cfg)
+      --sample           show sample file for ~/$DOTDIR/$APP.list
+
+      --sub, --date-subdir      set save path to sub-directory which named by
+             current date, such as ~/Downloads/2014-06-22/
+      --nosub, --no-date-subdir
+             restore save path and never use dated sub-dir
+
+      --off, --disable [FILE1 FILE2 ...]
+          disable all available lines in special file(s), by add #! tag in
+          line beginning. if no file given, use ~/$DOTDIR/${APP}.list as default
+      --on, --enable [FILE1 FILE2 ...]
+          enable all available lines in special file(s), by remove #! tag in
+          line beginning. if no file given, use ~/$DOTDIR/${APP}.list as default
+
+      -v, --version    print the version information and exit
+      -h, --help       print this message and exit
+
+Please report bugs to Careone <emacslocale@126.com>.
+
+homepage:
+
+https://sourceforge.net/projects/emacslocale/files/system-grasp/
+EOF
+}
+
+usage_zh_CN () {
+cat <<EOF
+用法: $APP [选项]
+自动下载资源文件(~/$DOTDIR/$APP.list)中的网址指向的文件。目前只支持
+http, https 和 ftp 地址
+
+选项
+      -l, --list         显示 ~/$DOTDIR/${APP}.list 文件中的可用下载地址列表
+      -d, --download     读取 ~/$DOTDIR/${APP}.list 文件中的可用下载列表并按顺序进行下载
+      -md, --multi-download     同时下载多个文件（以后台方式运行）
+      -e, --edit         编辑下载资源文件 ~/$DOTDIR/${APP}.list 中的文件下载地址
+      -i, --init         生成默认配置文件 (~/$DOTDIR/${APP}.list 和 ~/$DOTDIR/${APP}.cfg)
+      --sample           显示下载列表资料文件 ~/$DOTDIR/$APP.list 的样例
+
+      --sub, --date-subdir       设置保存路径为以当前日期为文件名的子目录，如
+             ~/Downloads/2014-06-22/ 
+      --nosub, --no-date-subdir
+            恢复保存路径设置（不使用以当前日期为文件名的子目录）
+ 
+      --off, --disable [文件1 文件2 ...]
+          禁用指定文件中的全部可用下载列表(在行开头添加 #! 记号)。
+          如果未指定文件，则默认使用 ~/$DOTDIR/${APP}.list
+      --on, --enable [文件1 文件2 ...]
+          启用指定文件中的可用下载列表(修改以 #! 开头的行并移除 #! 标记)。
+          如果未指定文件，则默认使用 ~/$DOTDIR/${APP}.list
+
+      -v, --version    显示版本信息并退出
+      -h, --help       显示帮助信息并退出
+
+请发送缺陷报告给 Careone <emacslocale@126.com>.
+
+主页:
+
+https://sourceforge.net/projects/emacslocale/files/system-grasp/
+EOF
+}
+
+creatDefaultCfg () {
+cat <<EOF
+### settings for $APP
+# coding: utf-8
+VERSION="`$APP -v 2>/dev/null | cut -d' ' -f2`"
+TODIR=""	#default save to: ~/Downloads/
+MAX_DOWNS="3"	#not work yet
+SUBTODIR_BY_DATE="0"
+EOF
+}
+
+creatDefaultList () {
+cat <<EOF
+### download URLs for $APP
+# coding: utf-8
+
+### 000: system-grasp README.zh_CN
+http://sourceforge.net/projects/emacslocale/files/system-grasp/README.zh_CN
+
+### 001: pdf reader
+#!http://cdn01.foxitsoftware.com/pub/foxit/reader/desktop/linux/1.x/1.1/enu/FoxitReader_1.1.0_i386.deb
+#http://ardownload.adobe.com/pub/adobe/reader/unix/8.x/8.1.7/chs/AdobeReader_chs-8.1.7-1.i386.deb
+
+### 002: Sogou Chinese input method for Ubuntu/Debian i386
+#http://pinyin.sogou.com/linux/download.php?f=linux&bit=32
+#http://download.ime.sogou.com/1402921811/sogou_pinyin_linux_1.0.0.0033_i386.deb
+
+### 101: WPS Office for Linux
+## http://community.wps.cn/download/
+#!http://wdl1.cache.wps.cn/wps/download/Linux/unstable/wps-office_8.1.0.3724~b1p2_i386.deb
+#http://wdl1.cache.wps.cn/wps/download/Linux/unstable/wps-office-8.1.0.3724-0.1.b1p2.i686.rpm
+#http://wdl1.cache.wps.cn/wps/download/Linux/unstable/wps-office_8.1.0.3724~b1p2_x86.tar.xz
+#http://mo.wps.cn/dl/?v=cn00563
+EOF
+}
+
+## change current work directory to ~/ , for safe
+# if setting TODIR (in ~/.anyget/anyget.cfg) set to a bad or void string by mistake, 
+# the TODIR directory should be ~/BAD_TODIR, and not be /BAD_TODIR, which are not allowed
+cd "$HOME"
+
+## PART 2: main
+
+  if [ ! -d "$HOME/$DOTDIR/" ]; then
+    mkdir -p "$HOME/$DOTDIR/"
+  fi
+
+# keep log or not
+if [ "$KEEPLOG" = 1 ]; then
+
+  if [ ! -d "$LOGDIR/" ]; then
+    mkdir -p "$LOGDIR/"
+  fi
+
+  if [ ! -e "$LOG" ];then
+    touch "$LOG"
+  fi
+
+LOG_SIZE=`stat -c %s "$LOG" 2>/dev/null`
+
+  if [ -s "$LOG" ] && [ "$LOG_SIZE" -ge "$LOG_LIMIT" ];then
+    mv -f "$LOG" "${LOG}.last" &>/dev/null
+  fi
+	  #logger -i
+	  echo -e "$(date +"%Y-%m-%d %H:%M:%S") $0 $*\n\tRun by User $(id -un), PID=$$\n" >> "$LOG"
+fi
+
+# Check the arguments.
+for option in "$@"; do
+    case "$option" in
+
+    -h | --help)
+	if "usage_$CLANG" 2>/dev/null &>/dev/null; then
+	   "usage_$CLANG"
+	else usage
+	fi
+	exit 0 ;;
+
+    -e | --edit)
+	OPT="$1"
+	echo "edit URLs in download resource file ~/$DOTDIR/${APP}.list ..."
+	# $DISPLAY: null means run in console (Ctrl+Alt+F1-F6), 
+	#   	    and (:0), (:0.0) or similar means in Graphic Interface
+	if [ -z "$DISPLAY" ] ; then
+	  vi -n "$LIST"
+	elif which gedit &>/dev/null; then
+	  gedit "$LIST" &	#for GNOME
+	elif which kate &>/dev/null; then
+	  kate "$LIST" &	#for KDE
+	elif which mousepad &>/dev/null; then
+	  mousepad "$LIST" &	#for Xfce
+	elif which leafpad &>/dev/null; then
+	  leafpad "$LIST" &	#for LXDE
+	else xdg-open "$LIST" &		#for unknown
+	fi
+	exit 0 ;;
+
+    --sub | --date-subdir | --nosub | --no-date-subdir)
+	OPT="$1"
+	SETTING="SUBTODIR_BY_DATE"
+	case "$OPT" in
+	  --sub | --date-subdir)
+	    VALUE=1 ;;
+	  --nosub | --no-date-subdir)
+	    VALUE=0 ;;
+	  *)VALUE=0 ;;
+	esac
+
+	if [ "$VALUE" = 1 ]; then
+	  echo -en "  ready to \E[37;40mENABLE" ;tput sgr0;
+	else echo -en "  ready to \E[36;47mDISABLE" ;tput sgr0;
+	fi
+	  echo -n " setting $SETTING..."
+
+	if grep "^$SETTING=" "$APPCFG" &>/dev/null; then
+	  sed -i "/^$SETTING=/c$SETTING=$VALUE" "$APPCFG"
+	else sed -i "6i$SETTING=$VALUE" "$APPCFG"	#add setting for configure file, in line 6,
+	fi
+
+	if [ "$?" = 0 ]; then
+	  echo "  Done."
+	else
+	  echo "  Fail."
+	fi
+
+	shift
+	;;
+
+    -i | --init)
+	# generate default configure file.
+	# Notice: default configure file can be auto creat after first running with option -d, --download
+	if [ ! -d "$HOME/$DOTDIR" ]; then
+	  mkdir -p "$HOME/$DOTDIR"
+	fi
+
+	if [ ! -e "$APPCFG" ]; then
+	  echo "creat default configure file... (~/$DOTDIR/${APP}.cfg)"
+	else
+	  echo "restore configure file to default... (~/$DOTDIR/${APP}.cfg)"
+	  cp -f "$APPCFG" "${APPCFG}_backup"	#backup frist
+	fi
+	  creatDefaultCfg > "$APPCFG"
+
+	# touch a blank file: anyget.list
+	if [ ! -e "$LIST" ]; then
+	  touch "$LIST"
+	  creatDefaultList | head -5 >> "$LIST"
+	fi
+
+	if [ "$?" = 0 ]; then
+	  echo "  Done."
+	fi
+
+	if [ "$DEBUG" = 1 ] ; then
+	  CFG="$APPCFG"
+	  echo "show $CFG"
+	  echo " -------------- "
+	  cat -n "$CFG"
+	  echo " ============== "
+	fi
+
+	shift
+	#exit 0
+	 ;;
+
+    --sample)
+	## usage: --sample
+	# show anyget.list sample files
+
+	echo -e "* sample for list resource file (~/$DOTDIR/${APP}.list):\n"
+	echo " -------------- "
+	# show first 5 lines only
+	creatDefaultList | head -5
+	echo " ============== "
+	echo
+	shift
+	 ;;
+
+    -d | --download | -md | --multi-download | -l | --list)
+	## download or show list only
+	OPT="$1"
+
+	# extra operation:
+	# creat default configure file after first running
+	if [ ! -e "$APPCFG" ]; then
+	  echo "creat default configure file (~$HOME/$DOTDIR/$APP.cfg)..."
+	  creatDefaultCfg > "$APPCFG"
+	fi
+
+	case "$OPT" in
+    	  -d | --download)
+	    echo "* download files by orders (read download lists from file ~/$DOTDIR/${APP}.list)..."
+      		;;
+	  -md | --multi-download) 
+	    #download multi file at the same time, in background
+ 	    echo "* download MULTI files at one time (read download lists from file ~/$DOTDIR/${APP}.list)..."
+		;;
+	 -l | --list)
+ 	    echo "* list lines to be downloaded in file \`~/$DOTDIR/${APP}.list'..."
+		;;
+    	  *)echo "Error: unknown option \`$OPT' (E292)" 1>&2
+		exit 0	;;
+	esac
+
+	declare -a URLS URLS01 URLS02
+	#MAX_DOWNS=3	#limit max wget progresses. read setting from ~/anyget/anyget.cfg frist
+
+	## get/check setting 1: TODIR
+	#  in configure file ~/anyget/anyget.cfg
+	## optional string settings:
+	# TODIR="/home/user/Downloads"	#format 1
+	# TODIR='/home/user/Downloads'	#format 2
+	# TODIR=/home/user/Downloads	#format 3
+
+	## change current work directory to ~/ , for safe
+	# if setting TODIR (in ~/anyget/anyget.cfg) set to a bad or void string by mistake, 
+	# the TODIR directory should be ~/BAD_TODIR, and not be /BAD_TODIR
+
+	cd "$HOME"
+
+	SETTING='TODIR'	#string
+	
+	#need fix, 2014-06-26
+	if [ -r "$APPCFG" ]; then	#probe for format 1 frist
+	  if grep ^"$SETTING=" "$APPCFG" 2>/dev/null &>/dev/null; then
+	    TODIR=$(grep ^"$SETTING"=\".*\" "$APPCFG" 2>/dev/null | head -1 | cut -d'=' -f2 | cut -d'#' -f1 | cut -d'"' -f2)
+
+
+	    if [ "$DEBUG" = 1 ] ; then
+	      echo "L295 TODIR = '$TODIR'" ; #exit 0;
+	    fi
+
+	  if [ -z "$TODIR" ]; then	#if format 1 not found, try probe for format 2
+	    TODIR=$(grep ^"$SETTING"=\'.*\' "$APPCFG" 2>/dev/null | head -1 | cut -d'=' -f2 | cut -d'#' -f1 | cut -d"'" -f2)
+	    if [ "$DEBUG" = 1 ] ; then
+	    echo "L300 TODIR = '$TODIR'" ; #exit 0;
+	    fi
+	  fi
+	
+	    #if format 1/2 not found, try probe for format 3
+	  if [ -z "$TODIR" ]; then
+	      TODIR=$(grep ^"$SETTING=" "$APPCFG" 2>/dev/null | head -1 | cut -d'=' -f2 | cut -d'#' -f1 | sed "/\t/s//\ /g;/'/s///g;/\"/s///g" | cut -d' ' -f1) 
+	      if [ "$DEBUG" = 1 ] ; then
+	      echo "L314 TODIR = '$TODIR'" ; #exit 0;
+	      fi
+	  fi
+
+	  case `echo "$TODIR" | sed '/[\t ]/s///g'` in
+	    "")
+	    # if setting string still in null or have space/blank only, use 
+	    #  default ~/Downloads/
+	      TODIR="${DEFAULT_TODIR}" 
+	      if [ "$DEBUG" = 1 ] ; then
+	        echo -e "\t(use default save path: \`$TODIR')"
+	      fi
+		;;
+
+	    *\** | *\?* | *\$* | \~/* | \~ | \.\. | \.\./)
+	    #*\** | *\?* | *\$* | \~/* | \~)
+	    # if TODIR include wild charactor(s), or other special charactors 
+	    # such as '$', ~/ in some cases, or set as '..', '../', / or /home
+	    # or any others, then force use default setting, for safe
+	        echo "  Warnning: void or unaccepted saving path setting (in file ~/$DOTDIR/${APP}.cfg):" 1>&2
+		echo "    (`grep "^TODIR=" "$APPCFG" 2>/dev/null | head -1`)" 1>&2
+		echo -e "  force use default.\n" 1>&2
+	      TODIR="${DEFAULT_TODIR}" 
+		;;
+	  esac	
+
+	    if [ "$DEBUG" = 1 ] ; then
+	      echo "L345 TODIR = '$TODIR'" ; #exit 0;
+	    fi
+
+	  if [ -z "$TODIR" ]; then 
+	    TODIR="${DEFAULT_TODIR}" 
+	    if [ "$DEBUG" = 1 ] ; then
+	      echo "L351 check 1: TODIR = '$TODIR'" ; #exit 0;
+	    fi
+  	  fi
+ 
+	else TODIR="${DEFAULT_TODIR}"	#default save path
+	  if [ "$DEBUG" = 1 ] ; then
+	    echo "L357 check 2: TODIR = '$TODIR'" ; #exit 0;
+	  fi	  
+	fi fi 
+
+ 	    ## ---- tag L351: need fix ----
+	    # if TODIR set as "$HOME/Downloads" or ~/Downloads, can't be
+	    # recognized, and should be type as "/home/user/Downloads"
+	    #
+	    # the following line not work and error reported for sed
+	    #TODIR=$(echo "$TODIR" | sed "/\$HOME/s//$HOME/g;/^~/s//$HOME/g") 
+	    ## ==================
+
+	if [ "$DEBUG" = 1 ] ; then
+	  # debug break node
+	  echo "L371 TODIR = '$TODIR'"
+	  #exit 0
+	fi
+
+	##----
+	## extra function: set save path to sub-directory which named by current date, by setting 
+	## in ~/anyget/anyget.cfg: SUBTODIR_BY_DATE=?	#optional value: 1,0
+	# example for Sub-TODIR: ~/Downloads/2014-06-20/
+	SETTING='SUBTODIR_BY_DATE'
+
+	case `grep "^$SETTING=" "$APPCFG" 2>/dev/null | head -1` in 
+	  $SETTING=\"[1tT]\"* | $SETTING=\'[1tT]\'* | $SETTING=[1tT] | $SETTING=[1tT][\t\ ]*)
+	    SUBTODIR_BY_DATE=1 ;;
+	  *): 
+	    SUBTODIR_BY_DATE=0 ;;
+	esac
+
+
+	if [ ! -z "$TODIR" ] && [ "$SUBTODIR_BY_DATE" = "1" ]; then 
+	  TODIR="$TODIR/$TIMESTAMP"
+	  echo "  Notice: setting \`SUBTODIR_BY_DATE' enabled!"
+	fi
+
+	#-----------------
+	#debug break node
+
+	if [ "$DEBUG" = 1 ] ; then
+	  echo "  (check setting in config: `grep "$SETTING=" "$APPCFG"`)"
+	  echo
+	  echo "SUBTODIR_BY_DATE=$SUBTODIR_BY_DATE"
+	  #exit 0
+	fi 
+	#=================
+
+	# show save path TODIR setting
+	echo -e "  saving path (TODIR): \`$TODIR'\n"
+	#exit 0
+
+	if [ ! -d "$HOME/$DOTDIR" ]; then
+	  mkdir -p "$HOME/$DOTDIR"
+	fi
+
+	#
+	if [ ! -d "$TODIR" ]; then
+	  mkdir -p "$TODIR"
+	fi
+
+	##----
+	## get resource file LIST
+
+	if [ ! -e "$LIST" ]; then
+	  echo "Notice: no download URL list file found. creat a blank one (~/$DOTDIR/${APP}.list)"
+	  touch "$LIST"
+	  creatDefaultList > "$LIST"
+	fi
+
+	## get/check setting 2: MAX_DOWNS
+	SETTING='MAX_DOWNS'
+	if [ -r "$APPCFG" ]; then
+	  MAX_DOWNS=`grep "^$SETTING" "$APPCFG" 2>/dev/null | head -1 | cut -d'=' -f2 | sed "/\t/s//\ /g" | cut -d' ' -f1 | sed "/'/s///g;/\"/s///g"`
+	fi
+	    if [ -z "$MAX_DOWNS" ]; then
+	      MAX_DOWNS="3"
+	    fi
+
+	### ready to download
+	
+	## tag L485: remove last / in line end, for example:
+	# original URL:
+	# http://sourceforge.net/projects/xxx/files/emacs-locale-dev/deb/emacs-locale-dev.deb/
+	#
+	# new URL:
+	# http://sourceforge.net/projects/xxx/files/emacs-locale-dev/deb/emacs-locale-dev.deb
+	echo "  check available URL list (in file ~/$DOTDIR/${APP}.list)..."
+	URLS01=( `grep -i "^http" "$LIST" 2>/dev/null | sed '/\/$/s///g'` )
+	URLS02=( `grep -i "^ftp" "$LIST" 2>/dev/null | sed '/\/$/s///g'` )
+
+	## if more url supported, please add URLS03, URLS04... to array URLS
+	URLS=( "${URLS01[@]}" "${URLS02[@]}" )
+	
+	# remove null/blank URLs
+	for b in `seq "${#URLS[@]}" 0 -1`; do
+	  if [ "${URLS[b]}" = "" ]; then
+	    unset URLS[b]
+	  fi
+	done
+
+	if [ "${#URLS[@]}" = 0 ]; then
+	  echo "  Notice: nothing available found. ignore." 1>&2
+	  SHOW_LIST="0"
+	else
+	  SHOW_LIST="1"
+	fi
+
+	LINES="${#URLS[@]}"
+
+	echo
+
+	if [ "$SHOW_LIST" = 1 ] ; then
+	  echo " ----------- "
+	  LINEID=1
+	for b in "${URLS[@]}"; do
+  	  echo "$LINEID $b"
+
+	  N="$(($LINEID % 5))"
+	  if [ "$N" = 0 ]; then
+	    echo
+	  fi
+	  let "LINEID += 1"
+	done
+	  echo " =========== "
+	  echo
+	fi
+
+	#---------
+
+	case "$OPT" in
+	  -l | --list)DOWNLOAD=0;	exit 0 ;;
+	    # for option --list, exit now and never download
+    	  *)DOWNLOAD=1 ;;
+	esac
+
+	## tips: show line 52
+	#sed -n '52p' 	#method 1
+	#sed '52!d' 	#method 2
+	#sed '52q;d' 	#method 3, more efficient for big files
+
+	ID=1	#init
+
+	if  [ "$DOWNLOAD" = 1 ] && [ ! -z "$LINES" ] && [ "$LINES" -ge 1 ]; then
+
+	  # ensure saving path writable or not
+	  if [ ! -d "$TODIR" ] || [ ! -w "$TODIR" ]; then
+	    echo "  Error: saving path \`$TODIR' not existed or creation failed. exit." 1>&2
+	    exit 1
+	  fi
+
+	  for URL in "${URLS[@]}"; do
+	     ## sample for standard URL format:
+	     # http://sourceforge.net/projects/xxx/files/emacs-locale-dev/deb/emacs-locale-dev.deb
+	     #
+	     ## samples for some special URL formats: (last / in line end alreay removed in tag L485)
+	     # http://sourceforge.net/projects/xxx/files/emacs-locale-dev/deb/emacs-locale-dev.deb/
+	     #                                                                                    ^
+	     # http://sourceforge.net/projects/xxx/files/emacs-locale-dev/deb/emacs-locale-dev.deb/download
+	     #                                                                                    ^-------- 
+	     # http://sourceforge.net/projects/xxx/files/emacs-locale-dev/deb/emacs-locale-dev.deb?download
+	     #                                                                                    ^--------
+	    if echo "$URL" | grep -i "/download$" 2>/dev/null &>/dev/null; then
+		#remove string '/download' in file end
+		# force replace HTTPS to HTTP, to support wget downloading
+	        URL=`echo "$URL" | sed '/^[hH][tT][tT][pP][sS]:/s//http:/;/\/[dD][oO][wW][nN][lL][oO][aA][dD]$/s///'`
+
+		#cut and keep frist part before charactor '?'
+	        BASENAME=`basename -- "$URL" | cut -d'?' -f1`
+	    else
+	        URL=`echo "$URL" | sed '/^[hH][tT][tT][pP][sS]:/s//http:/'`
+	        BASENAME=`basename -- "$URL" | cut -d'?' -f1`
+	    fi
+
+	    LOCK="${BASENAME}.LOCK"
+
+	    echo "$ID* downloading and save as \`$TODIR/$BASENAME'..."
+	    if [ -e "$TODIR/$LOCK" ]; then
+	      echo "  Notice: found LOCK file. maybe another program is downloading. skip." 1>&2
+	      echo
+	      let "ID += 1"
+	      continue
+	     else
+		touch "$TODIR/$LOCK"		#creat lock file
+		touch "$TODIR/${BASENAME}.$DOWNLOADING"	#tell user the file is downloading and not completed
+	     fi
+
+	    ## need do more:
+	    # should check filename and ensure not include bad charactors before downloading
+
+
+	   DOWNS=1	#init. Notice: DOWNS should <= MAX_DOWNS
+
+	    ## if wget progress less than MAX_DOWNS, run each wget in background,
+	    ## else run wget in frontground.
+	      let "ID += 1"
+
+	# debug break node
+	    if [ "$DEBUG" = 1 ]; then
+	     echo "tag L538: DOWNS = '$DOWNS'"
+	     echo "MAX_DOWNS = '$MAX_DOWNS'"
+	     #exit 0
+ 	   fi
+
+	   if [ "$DOWNS" -le "$MAX_DOWNS" ]; then
+
+	      let "DOWNS += 1"
+
+	    ## if progress interrupted, remove LOCK file
+		trap "{
+         	  rm -f "$TODIR/$LOCK" 2>/dev/null
+     			}" HUP INT QUIT TERM EXIT
+
+		case "$OPT" in
+	    	  -d | --download)
+	      wget -c "$URL" -O "$TODIR/$BASENAME" && { rm -f "$TODIR/${BASENAME}.$DOWNLOADING" ; rm -f "$TODIR/$LOCK" ; } && let "DOWNS -= 1"
+			;;
+		  -md | --multi-download) 
+		#download multi file at the same time, in background
+	      wget -c "$URL" -O "$TODIR/$BASENAME" && { rm -f "$TODIR/${BASENAME}.$DOWNLOADING" ; rm -f "$TODIR/$LOCK" ; } & 
+			;;
+	    	  *)echo "Error: unknown option \`$OPT' (E537)" 1>&2
+			;;
+		esac
+
+	      continue
+	    else
+		trap "{
+         	  rm -f "$TODIR/$LOCK" 2>/dev/null
+     			}" HUP INT QUIT TERM EXIT
+	      wget -c "$URL" -O "$TODIR/$BASENAME" && { rm -f "$TODIR/${BASENAME}.$DOWNLOADING" ; rm -f "$TODIR/$LOCK" ; } && let "DOWNS -= 1"
+	    fi 
+	    echo
+	  done
+
+	  if [ "$?" = 0 ]; then
+	    echo "  Done."
+	  fi
+	else echo -n "Notice: download completed, or no more available URLs"
+	  echo " need downloaded. ignore."
+	fi 
+	
+	unset URLS URLS01 URLS02 URL LINES ID
+	shift
+	exit 0 ;;
+
+    --disable | --off | --enable | --on)
+	# usage: --disable
+	# 	 --disable FILE1 FILE2 ...
+	## disable all lines, by add two symbol '#!' before each line beginning.
+	## also can enable all lines which begin with "#!", by remove the two symbols
+	## current supported strings: http, https, ftp
+	## examples:
+	# == disable mode ==
+	# http... --> #!http...
+	# https... --> #!https...
+	# ftp... --> #!ftp...
+
+	OPT="$1"
+	declare -a LISTS
+	#shift
+	if [ "$#" -le 1 ]; then
+	  LISTS=( "$HOME/$DOTDIR/${APP}.list" )
+	else LISTS=( "$@" )
+	  unset LISTS[0]	#remove string '$1', which is an option string
+	fi
+
+	SHOW_LIST="1"
+	if [ "$SHOW_LIST" = 1 ] ; then
+	  echo -e "file(s) to be modify:\n"
+
+	  #echo " -------------- "
+	  ID=1 #init
+	  for a in "${LISTS[@]}"; do
+	    echo -e "$ID* $a"
+		 ## add a new line after every 5 lines
+		N="$(($ID % 5))"
+
+		if [ "$N" = 0 ]; then
+		  echo
+		fi
+	    let "ID += 1"
+	  done
+	echo
+	  #echo " ============== "
+	fi
+
+	# debug node
+	#exit 0
+
+      case "$OPT" in
+	--off | --disable)
+    	  DOWHAT="DISABLE"	#text string
+		;;
+	--on | --enable)
+    	  DOWHAT="ENABLE"	#text string
+		;;
+	*)echo " error (D01): bad option \`$OPT'. quit." 1>&2 ;;
+      esac
+
+
+	for a in "${LISTS[@]}"; do
+	  echo "* $DOWHAT lines in file \`$a'..."
+	  if [ -w "$a" ]; then
+	    cp -f "$a" "${a}_tmp"
+
+	      case "$OPT" in
+		--disable | --off)
+	    	  sed -i '/^[hH][tT][tT][pP]/s//\#\!&/;/^[fF][tT][pP]/s//\#\!&/' "${a}_tmp"
+			;;
+		--enable | --on)
+	    	  sed -i '/^\#\!/s///' "${a}_tmp"
+			;;
+		*)echo " error (D02): bad option \`$OPT'. quit." 1>&2 ;;
+	      esac
+
+	    mv -f --backup "${a}_tmp" "$a"
+	  else
+	    echo "  Error: file \`$a' not found or void, or not writable. skip." 1>&2
+	    continue
+	  fi
+
+	  CFG="$a"
+	done
+
+	if [ "$?" = 0 ]; then
+	  echo "  Done."
+	fi
+
+	if [ "$DEBUG" = 1 ] ; then
+	  echo "show $CFG"
+	  echo " -------------- "
+	  cat -n "$CFG"
+	  echo " ============== "
+	fi
+
+	unset LISTS CFG ;
+	exit 0 ;;
+
+    -v | --version)
+	basename -- "$0 $VERSION"
+	exit 0 ;;
+
+    -*)
+	echo "Unrecognized option \`$option'" 1>&2
+	exit 1 ;;
+    esac
+done
+
+exit 0 ;
